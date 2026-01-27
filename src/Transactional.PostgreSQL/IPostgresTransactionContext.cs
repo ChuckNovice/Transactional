@@ -1,16 +1,15 @@
-namespace Transactional.PostgreSQL
-{
-    using Npgsql;
-    using Transactional.Abstractions;
+namespace Transactional.PostgreSQL;
 
+using Npgsql;
+using Transactional.Abstractions;
+
+/// <summary>
+/// PostgreSQL-specific transaction context providing access to the underlying NpgsqlTransaction.
+/// </summary>
+public interface IPostgresTransactionContext : ITransactionContext
+{
     /// <summary>
-    /// PostgreSQL-specific transaction context providing access to the underlying NpgsqlTransaction.
+    /// Gets the native Npgsql transaction for use in database operations.
     /// </summary>
-    public interface IPostgresTransactionContext : ITransactionContext
-    {
-        /// <summary>
-        /// Gets the native Npgsql transaction for use in database operations.
-        /// </summary>
-        NpgsqlTransaction Transaction { get; }
-    }
+    NpgsqlTransaction Transaction { get; }
 }

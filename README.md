@@ -38,36 +38,31 @@ await using (var context = await manager.BeginTransactionAsync())
 
 | Package | Description | Dependencies |
 |---------|-------------|--------------|
-| `Transactional.Abstractions` | Core interfaces (`ITransactionContext`, `ITransactionContextAccessor`) | None |
+| `Transactional.Abstractions` | Core interface (`ITransactionContext`) | None |
 | `Transactional.MongoDB` | MongoDB implementation wrapping `IClientSessionHandle` | MongoDB.Driver 3.x |
 | `Transactional.PostgreSQL` | PostgreSQL implementation wrapping `NpgsqlTransaction` | Npgsql 8.x |
 
-## Usage Patterns
+## Recommended Usage Pattern
 
-### Pattern 1: Repository Participation
-
-Repositories check for an ambient transaction and use it if available:
+Pass the transaction context directly to methods that need to participate in the transaction:
 
 ```csharp
 public class UserRepository
 {
     private readonly IMongoDatabase _database;
-    private readonly ITransactionContextAccessor _accessor;
 
-    public UserRepository(IMongoDatabase database, ITransactionContextAccessor accessor)
+    public UserRepository(IMongoDatabase database)
     {
         _database = database;
-        _accessor = accessor;
     }
 
-    public async Task CreateUserAsync(User user)
+    public async Task CreateUserAsync(User user, IMongoTransactionContext? transactionContext = null)
     {
         var collection = _database.GetCollection<User>("users");
-        var session = (_accessor.Current as IMongoTransactionContext)?.Session;
 
-        if (session != null)
+        if (transactionContext != null)
         {
-            await collection.InsertOneAsync(session, user);
+            await collection.InsertOneAsync(transactionContext.Session, user);
         }
         else
         {
@@ -75,29 +70,51 @@ public class UserRepository
         }
     }
 }
+
+public class OrderRepository
+{
+    private readonly IMongoDatabase _database;
+
+    public OrderRepository(IMongoDatabase database)
+    {
+        _database = database;
+    }
+
+    public async Task CreateOrderAsync(Order order, IMongoTransactionContext? transactionContext = null)
+    {
+        var collection = _database.GetCollection<Order>("orders");
+
+        if (transactionContext != null)
+        {
+            await collection.InsertOneAsync(transactionContext.Session, order);
+        }
+        else
+        {
+            await collection.InsertOneAsync(order);
+        }
+    }
+}
 ```
 
-### Pattern 2: Application-Level Transaction Control
+### Application-Level Transaction Control
 
-The application controls when transactions begin and end:
+The application creates and manages transactions, passing the context to repositories:
 
 ```csharp
 public class OrderService
 {
     private readonly IMongoTransactionManager _transactionManager;
-    private readonly ITransactionContextAccessor _accessor;
     private readonly UserRepository _userRepo;
     private readonly OrderRepository _orderRepo;
 
     public async Task CreateOrderWithUserAsync(User user, Order order)
     {
         await using var context = await _transactionManager.BeginTransactionAsync();
-        _accessor.Current = context;
 
         try
         {
-            await _userRepo.CreateUserAsync(user);
-            await _orderRepo.CreateOrderAsync(order);
+            await _userRepo.CreateUserAsync(user, context);
+            await _orderRepo.CreateOrderAsync(order, context);
             await context.CommitAsync();
         }
         catch
@@ -105,15 +122,11 @@ public class OrderService
             await context.RollbackAsync();
             throw;
         }
-        finally
-        {
-            _accessor.Current = null;
-        }
     }
 }
 ```
 
-### Pattern 3: Transaction Scope Helper
+### Transaction Scope Helper
 
 A helper method that wraps the transaction lifecycle:
 
@@ -122,15 +135,13 @@ public static class TransactionScope
 {
     public static async Task ExecuteAsync(
         IMongoTransactionManager manager,
-        ITransactionContextAccessor accessor,
-        Func<Task> action)
+        Func<IMongoTransactionContext, Task> action)
     {
         await using var context = await manager.BeginTransactionAsync();
-        accessor.Current = context;
 
         try
         {
-            await action();
+            await action(context);
             await context.CommitAsync();
         }
         catch
@@ -138,18 +149,14 @@ public static class TransactionScope
             await context.RollbackAsync();
             throw;
         }
-        finally
-        {
-            accessor.Current = null;
-        }
     }
 }
 
 // Usage
-await TransactionScope.ExecuteAsync(_manager, _accessor, async () =>
+await TransactionScope.ExecuteAsync(_manager, async context =>
 {
-    await _userRepo.CreateUserAsync(user);
-    await _orderRepo.CreateOrderAsync(order);
+    await _userRepo.CreateUserAsync(user, context);
+    await _orderRepo.CreateOrderAsync(order, context);
 });
 ```
 
@@ -220,13 +227,6 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
     new MongoClient("mongodb://localhost:27017"));
 
 builder.Services.AddSingleton<IMongoTransactionManager, MongoTransactionManager>();
-builder.Services.AddScoped<ITransactionContextAccessor, TransactionContextAccessor>();
-
-// Simple accessor implementation
-public class TransactionContextAccessor : ITransactionContextAccessor
-{
-    public ITransactionContext? Current { get; set; }
-}
 ```
 
 ### ASP.NET Core with PostgreSQL
@@ -236,20 +236,19 @@ builder.Services.AddSingleton(sp =>
     NpgsqlDataSource.Create("Host=localhost;Database=myapp;Username=postgres;Password=secret"));
 
 builder.Services.AddSingleton<IPostgresTransactionManager, PostgresTransactionManager>();
-builder.Services.AddScoped<ITransactionContextAccessor, TransactionContextAccessor>();
 ```
 
 ## Best Practices
 
 1. **Always use `await using` for transactions** - This ensures proper disposal even if exceptions occur.
 
-2. **Register `ITransactionContextAccessor` as Scoped** - This ensures each request/scope has its own transaction context.
+2. **Pass transaction context explicitly** - Pass the `ITransactionContext` (or database-specific variant) directly to methods that need to participate in the transaction.
 
 3. **Commit explicitly before dispose** - While dispose will rollback uncommitted transactions, it's clearer to commit explicitly.
 
-4. **Clear the accessor after transaction completes** - Set `accessor.Current = null` after commit or rollback.
+4. **Handle exceptions appropriately** - Catch exceptions, rollback, and rethrow to ensure proper transaction cleanup.
 
-5. **Handle exceptions appropriately** - Catch exceptions, rollback, and rethrow to ensure proper transaction cleanup.
+5. **Make transaction participation optional** - Allow methods to work with or without a transaction context for flexibility.
 
 ## API Reference
 
@@ -258,7 +257,6 @@ All public APIs include XML documentation. Enable documentation generation in yo
 ### Core Interfaces
 
 - `ITransactionContext` - Represents an active transaction with `CommitAsync` and `RollbackAsync`
-- `ITransactionContextAccessor` - Holds the ambient transaction via the `Current` property
 
 ### MongoDB
 
@@ -270,10 +268,6 @@ All public APIs include XML documentation. Enable documentation generation in yo
 - `IPostgresTransactionContext` - Extends `ITransactionContext`, exposes `Transaction` property
 - `IPostgresTransactionManager` - Creates transactions via `BeginTransactionAsync`
 
-## Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
