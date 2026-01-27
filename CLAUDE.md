@@ -29,14 +29,15 @@ dotnet pack -c Release /p:Version={version}
 
 Three NuGet packages with a layered dependency structure:
 
-- **Transactional.Abstractions** - Core interfaces (`ITransactionContext`, `ITransactionContextAccessor`) with no external dependencies
+- **Transactional.Abstractions** - Core interface (`ITransactionContext`) with no external dependencies
 - **Transactional.MongoDB** - MongoDB implementation wrapping `IClientSessionHandle`, depends on MongoDB.Driver 3.x
 - **Transactional.PostgreSQL** - PostgreSQL implementation wrapping `NpgsqlTransaction`, depends on Npgsql 8.x
 
 Key interfaces:
 - `ITransactionContext` (extends `IAsyncDisposable`): CommitAsync, RollbackAsync - represents an active transaction
-- `ITransactionContextAccessor`: Holds ambient transaction via `Current` property (scoped lifetime in DI)
 - Database-specific interfaces (`IMongoTransactionContext`, `IPostgresTransactionContext`) expose native transaction objects
+
+Usage pattern: Transaction contexts should be passed directly to methods that need to participate in the transaction, rather than retrieved from ambient state.
 
 ## Testing Strategy
 
