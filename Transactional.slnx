@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Transactional.Abstractions/Transactional.Abstractions.csproj" />
+    <Project Path="src/Transactional.MongoDB/Transactional.MongoDB.csproj" />
+    <Project Path="src/Transactional.PostgreSQL/Transactional.PostgreSQL.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Transactional.Abstractions.Tests/Transactional.Abstractions.Tests.csproj" />
+    <Project Path="tests/Transactional.MongoDB.Tests/Transactional.MongoDB.Tests.csproj" />
+    <Project Path="tests/Transactional.PostgreSQL.Tests/Transactional.PostgreSQL.Tests.csproj" />
+  </Folder>
+</Solution>
