@@ -8,7 +8,7 @@
     <Authors>ChuckNovice</Authors>
     <Description>Database transaction abstractions for coordinating operations across multiple persistence libraries in .NET</Description>
     <RepositoryUrl>https://github.com/ChuckNovice/Transactional</RepositoryUrl>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageTags>transaction;database;abstractions</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>

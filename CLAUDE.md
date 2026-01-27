@@ -37,7 +37,10 @@ Key interfaces:
 - `ITransactionContext` (extends `IAsyncDisposable`): CommitAsync, RollbackAsync - represents an active transaction
 - Database-specific interfaces (`IMongoTransactionContext`, `IPostgresTransactionContext`) expose native transaction objects
 
-Usage pattern: Transaction contexts should be passed directly to methods that need to participate in the transaction, rather than retrieved from ambient state.
+Usage patterns:
+- Transaction contexts should be passed directly to methods that need to participate in the transaction
+- Repository methods should accept `ITransactionContext` (not database-specific types) and cast internally
+- Use DI extension methods: `AddMongoDbTransactionManager()` and `AddPostgresTransactionManager()`
 
 ## Testing Strategy
 
@@ -64,3 +67,4 @@ Usage pattern: Transaction contexts should be passed directly to methods that ne
 
 - XML documentation required on all public classes, methods, and properties
 - `using` directives should be placed inside the namespace
+- Extension methods for DI go in `Microsoft.Extensions.DependencyInjection` namespace

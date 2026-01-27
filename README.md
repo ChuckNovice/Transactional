@@ -21,16 +21,56 @@ dotnet add package Transactional.PostgreSQL
 
 ## Quick Start
 
-```csharp
-// MongoDB example
-var client = new MongoClient("mongodb://localhost:27017");
-var manager = new MongoTransactionManager(client);
+### MongoDB
 
-await using (var context = await manager.BeginTransactionAsync())
+```csharp
+// Program.cs - Register services
+builder.Services.AddMongoDbTransactionManager(sp =>
+    new MongoClient("mongodb://localhost:27017"));
+
+// Usage
+public class MyService
 {
-    var collection = database.GetCollection<BsonDocument>("users");
-    await collection.InsertOneAsync(context.Session, new BsonDocument("name", "John"));
-    await context.CommitAsync();
+    private readonly IMongoTransactionManager _transactionManager;
+
+    public MyService(IMongoTransactionManager transactionManager)
+    {
+        _transactionManager = transactionManager;
+    }
+
+    public async Task DoWorkAsync()
+    {
+        await using var context = await _transactionManager.BeginTransactionAsync();
+
+        // Pass context to repositories...
+        await context.CommitAsync();
+    }
+}
+```
+
+### PostgreSQL
+
+```csharp
+// Program.cs - Register services
+builder.Services.AddPostgresTransactionManager("Host=localhost;Database=myapp;Username=postgres;Password=secret");
+
+// Usage
+public class MyService
+{
+    private readonly IPostgresTransactionManager _transactionManager;
+
+    public MyService(IPostgresTransactionManager transactionManager)
+    {
+        _transactionManager = transactionManager;
+    }
+
+    public async Task DoWorkAsync()
+    {
+        await using var context = await _transactionManager.BeginTransactionAsync();
+
+        // Pass context to repositories...
+        await context.CommitAsync();
+    }
 }
 ```
 
@@ -42,9 +82,43 @@ await using (var context = await manager.BeginTransactionAsync())
 | `Transactional.MongoDB` | MongoDB implementation wrapping `IClientSessionHandle` | MongoDB.Driver 3.x |
 | `Transactional.PostgreSQL` | PostgreSQL implementation wrapping `NpgsqlTransaction` | Npgsql 8.x |
 
+## Dependency Injection Setup
+
+### MongoDB
+
+```csharp
+// Option 1: With existing IMongoClient registration
+builder.Services.AddSingleton<IMongoClient>(new MongoClient("mongodb://localhost:27017"));
+builder.Services.AddMongoDbTransactionManager();
+
+// Option 2: With factory (registers both IMongoClient and transaction manager)
+builder.Services.AddMongoDbTransactionManager(sp =>
+    new MongoClient(configuration.GetConnectionString("MongoDB")));
+```
+
+### PostgreSQL
+
+```csharp
+// Option 1: With connection string (registers both NpgsqlDataSource and transaction manager)
+builder.Services.AddPostgresTransactionManager("Host=localhost;Database=myapp");
+
+// Option 2: With existing NpgsqlDataSource registration
+builder.Services.AddSingleton(NpgsqlDataSource.Create("Host=localhost;Database=myapp"));
+builder.Services.AddPostgresTransactionManager();
+
+// Option 3: With factory (registers both NpgsqlDataSource and transaction manager)
+builder.Services.AddPostgresTransactionManager(sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    return NpgsqlDataSource.Create(config.GetConnectionString("PostgreSQL")!);
+});
+```
+
 ## Recommended Usage Pattern
 
-Pass the transaction context directly to methods that need to participate in the transaction:
+### Repository Layer
+
+Repositories should accept the base `ITransactionContext` interface, then cast to the database-specific type internally. This keeps your repository contracts database-agnostic while still allowing full access to native transaction features.
 
 ```csharp
 public class UserRepository
@@ -56,13 +130,19 @@ public class UserRepository
         _database = database;
     }
 
-    public async Task CreateUserAsync(User user, IMongoTransactionContext? transactionContext = null)
+    public async Task CreateUserAsync(User user, ITransactionContext? transactionContext = null)
     {
         var collection = _database.GetCollection<User>("users");
 
         if (transactionContext != null)
         {
-            await collection.InsertOneAsync(transactionContext.Session, user);
+            if (transactionContext is not IMongoTransactionContext mongoContext)
+            {
+                throw new InvalidOperationException(
+                    $"Expected {nameof(IMongoTransactionContext)} but received {transactionContext.GetType().Name}");
+            }
+
+            await collection.InsertOneAsync(mongoContext.Session, user);
         }
         else
         {
@@ -80,13 +160,19 @@ public class OrderRepository
         _database = database;
     }
 
-    public async Task CreateOrderAsync(Order order, IMongoTransactionContext? transactionContext = null)
+    public async Task CreateOrderAsync(Order order, ITransactionContext? transactionContext = null)
     {
         var collection = _database.GetCollection<Order>("orders");
 
         if (transactionContext != null)
         {
-            await collection.InsertOneAsync(transactionContext.Session, order);
+            if (transactionContext is not IMongoTransactionContext mongoContext)
+            {
+                throw new InvalidOperationException(
+                    $"Expected {nameof(IMongoTransactionContext)} but received {transactionContext.GetType().Name}");
+            }
+
+            await collection.InsertOneAsync(mongoContext.Session, order);
         }
         else
         {
@@ -96,9 +182,9 @@ public class OrderRepository
 }
 ```
 
-### Application-Level Transaction Control
+### Service Layer
 
-The application creates and manages transactions, passing the context to repositories:
+The service layer controls transaction boundaries and passes the context to repositories:
 
 ```csharp
 public class OrderService
@@ -106,6 +192,16 @@ public class OrderService
     private readonly IMongoTransactionManager _transactionManager;
     private readonly UserRepository _userRepo;
     private readonly OrderRepository _orderRepo;
+
+    public OrderService(
+        IMongoTransactionManager transactionManager,
+        UserRepository userRepo,
+        OrderRepository orderRepo)
+    {
+        _transactionManager = transactionManager;
+        _userRepo = userRepo;
+        _orderRepo = orderRepo;
+    }
 
     public async Task CreateOrderWithUserAsync(User user, Order order)
     {
@@ -135,7 +231,7 @@ public static class TransactionScope
 {
     public static async Task ExecuteAsync(
         IMongoTransactionManager manager,
-        Func<IMongoTransactionContext, Task> action)
+        Func<ITransactionContext, Task> action)
     {
         await using var context = await manager.BeginTransactionAsync();
 
@@ -153,102 +249,66 @@ public static class TransactionScope
 }
 
 // Usage
-await TransactionScope.ExecuteAsync(_manager, async context =>
+await TransactionScope.ExecuteAsync(_transactionManager, async context =>
 {
     await _userRepo.CreateUserAsync(user, context);
     await _orderRepo.CreateOrderAsync(order, context);
 });
 ```
 
-## MongoDB Example
+## PostgreSQL Repository Example
 
 ```csharp
-using MongoDB.Driver;
-using Transactional.MongoDB;
-
-var client = new MongoClient("mongodb://localhost:27017");
-var database = client.GetDatabase("myapp");
-var manager = new MongoTransactionManager(client);
-
-// With custom transaction options
-var options = new TransactionOptions(
-    readConcern: ReadConcern.Majority,
-    writeConcern: WriteConcern.WMajority);
-
-await using (var context = await manager.BeginTransactionAsync(options))
+public class UserRepository
 {
-    var users = database.GetCollection<BsonDocument>("users");
-    var orders = database.GetCollection<BsonDocument>("orders");
+    private readonly NpgsqlDataSource _dataSource;
 
-    // Use context.Session for all operations
-    await users.InsertOneAsync(context.Session, new BsonDocument("name", "Alice"));
-    await orders.InsertOneAsync(context.Session, new BsonDocument("userId", "alice"));
+    public UserRepository(NpgsqlDataSource dataSource)
+    {
+        _dataSource = dataSource;
+    }
 
-    await context.CommitAsync();
+    public async Task CreateUserAsync(string name, ITransactionContext? transactionContext = null)
+    {
+        if (transactionContext != null)
+        {
+            if (transactionContext is not IPostgresTransactionContext pgContext)
+            {
+                throw new InvalidOperationException(
+                    $"Expected {nameof(IPostgresTransactionContext)} but received {transactionContext.GetType().Name}");
+            }
+
+            await using var command = pgContext.Transaction.Connection!.CreateCommand();
+            command.Transaction = pgContext.Transaction;
+            command.CommandText = "INSERT INTO users (name) VALUES (@name)";
+            command.Parameters.AddWithValue("name", name);
+            await command.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO users (name) VALUES (@name)";
+            command.Parameters.AddWithValue("name", name);
+            await command.ExecuteNonQueryAsync();
+        }
+    }
 }
-```
-
-## PostgreSQL Example
-
-```csharp
-using Npgsql;
-using Transactional.PostgreSQL;
-using System.Data;
-
-var dataSource = NpgsqlDataSource.Create("Host=localhost;Database=myapp;Username=postgres;Password=secret");
-var manager = new PostgresTransactionManager(dataSource);
-
-// With specific isolation level
-await using (var context = await manager.BeginTransactionAsync(IsolationLevel.Serializable))
-{
-    await using var command = context.Transaction.Connection!.CreateCommand();
-    command.Transaction = context.Transaction;
-
-    command.CommandText = "INSERT INTO users (name) VALUES (@name)";
-    command.Parameters.AddWithValue("name", "Alice");
-    await command.ExecuteNonQueryAsync();
-
-    command.CommandText = "INSERT INTO orders (user_id) VALUES (@userId)";
-    command.Parameters.Clear();
-    command.Parameters.AddWithValue("userId", 1);
-    await command.ExecuteNonQueryAsync();
-
-    await context.CommitAsync();
-}
-```
-
-## Dependency Injection Setup
-
-### ASP.NET Core with MongoDB
-
-```csharp
-// In Program.cs or Startup.cs
-builder.Services.AddSingleton<IMongoClient>(sp =>
-    new MongoClient("mongodb://localhost:27017"));
-
-builder.Services.AddSingleton<IMongoTransactionManager, MongoTransactionManager>();
-```
-
-### ASP.NET Core with PostgreSQL
-
-```csharp
-builder.Services.AddSingleton(sp =>
-    NpgsqlDataSource.Create("Host=localhost;Database=myapp;Username=postgres;Password=secret"));
-
-builder.Services.AddSingleton<IPostgresTransactionManager, PostgresTransactionManager>();
 ```
 
 ## Best Practices
 
 1. **Always use `await using` for transactions** - This ensures proper disposal even if exceptions occur.
 
-2. **Pass transaction context explicitly** - Pass the `ITransactionContext` (or database-specific variant) directly to methods that need to participate in the transaction.
+2. **Pass `ITransactionContext` to repositories** - Use the base interface in method signatures, then cast internally to keep contracts database-agnostic.
 
 3. **Commit explicitly before dispose** - While dispose will rollback uncommitted transactions, it's clearer to commit explicitly.
 
 4. **Handle exceptions appropriately** - Catch exceptions, rollback, and rethrow to ensure proper transaction cleanup.
 
 5. **Make transaction participation optional** - Allow methods to work with or without a transaction context for flexibility.
+
+6. **Use DI extension methods** - Prefer `AddMongoDbTransactionManager()` and `AddPostgresTransactionManager()` over manual registration.
 
 ## API Reference
 
