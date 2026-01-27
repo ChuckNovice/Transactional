@@ -1,100 +1,99 @@
-namespace Transactional.MongoDB.Tests
+namespace Transactional.MongoDB.Tests;
+
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using global::MongoDB.Driver;
+using Moq;
+using Xunit;
+
+public class MongoTransactionManagerTests
 {
-    using System;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using global::MongoDB.Driver;
-    using Moq;
-    using Xunit;
+    private readonly Mock<IMongoClient> _mockClient;
+    private readonly Mock<IClientSessionHandle> _mockSession;
 
-    public class MongoTransactionManagerTests
+    public MongoTransactionManagerTests()
     {
-        private readonly Mock<IMongoClient> _mockClient;
-        private readonly Mock<IClientSessionHandle> _mockSession;
+        _mockClient = new Mock<IMongoClient>();
+        _mockSession = new Mock<IClientSessionHandle>();
+    }
 
-        public MongoTransactionManagerTests()
-        {
-            _mockClient = new Mock<IMongoClient>();
-            _mockSession = new Mock<IClientSessionHandle>();
-        }
+    [Fact]
+    public void Constructor_NullClient_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => new MongoTransactionManager(null!));
+    }
 
-        [Fact]
-        public void Constructor_NullClient_ThrowsArgumentNullException()
-        {
-            Assert.Throws<ArgumentNullException>(() => new MongoTransactionManager(null!));
-        }
+    [Fact]
+    public async Task BeginTransactionAsync_CallsStartSessionAsync()
+    {
+        _mockClient
+            .Setup(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_mockSession.Object);
 
-        [Fact]
-        public async Task BeginTransactionAsync_CallsStartSessionAsync()
-        {
-            _mockClient
-                .Setup(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(_mockSession.Object);
+        var manager = new MongoTransactionManager(_mockClient.Object);
 
-            var manager = new MongoTransactionManager(_mockClient.Object);
+        await manager.BeginTransactionAsync();
 
-            await manager.BeginTransactionAsync();
+        _mockClient.Verify(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()), Times.Once);
+    }
 
-            _mockClient.Verify(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()), Times.Once);
-        }
+    [Fact]
+    public async Task BeginTransactionAsync_PassesCancellationToken()
+    {
+        var cts = new CancellationTokenSource();
+        _mockClient
+            .Setup(c => c.StartSessionAsync(null, cts.Token))
+            .ReturnsAsync(_mockSession.Object);
 
-        [Fact]
-        public async Task BeginTransactionAsync_PassesCancellationToken()
-        {
-            var cts = new CancellationTokenSource();
-            _mockClient
-                .Setup(c => c.StartSessionAsync(null, cts.Token))
-                .ReturnsAsync(_mockSession.Object);
+        var manager = new MongoTransactionManager(_mockClient.Object);
 
-            var manager = new MongoTransactionManager(_mockClient.Object);
+        await manager.BeginTransactionAsync(cancellationToken: cts.Token);
 
-            await manager.BeginTransactionAsync(cancellationToken: cts.Token);
+        _mockClient.Verify(c => c.StartSessionAsync(null, cts.Token), Times.Once);
+    }
 
-            _mockClient.Verify(c => c.StartSessionAsync(null, cts.Token), Times.Once);
-        }
+    [Fact]
+    public async Task BeginTransactionAsync_ReturnsMongoTransactionContext()
+    {
+        _mockClient
+            .Setup(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_mockSession.Object);
 
-        [Fact]
-        public async Task BeginTransactionAsync_ReturnsMongoTransactionContext()
-        {
-            _mockClient
-                .Setup(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(_mockSession.Object);
+        var manager = new MongoTransactionManager(_mockClient.Object);
 
-            var manager = new MongoTransactionManager(_mockClient.Object);
+        var result = await manager.BeginTransactionAsync();
 
-            var result = await manager.BeginTransactionAsync();
+        Assert.NotNull(result);
+        Assert.IsType<MongoTransactionContext>(result);
+    }
 
-            Assert.NotNull(result);
-            Assert.IsType<MongoTransactionContext>(result);
-        }
+    [Fact]
+    public async Task BeginTransactionAsync_ContextHasSession()
+    {
+        _mockClient
+            .Setup(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_mockSession.Object);
 
-        [Fact]
-        public async Task BeginTransactionAsync_ContextHasSession()
-        {
-            _mockClient
-                .Setup(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(_mockSession.Object);
+        var manager = new MongoTransactionManager(_mockClient.Object);
 
-            var manager = new MongoTransactionManager(_mockClient.Object);
+        var result = await manager.BeginTransactionAsync();
 
-            var result = await manager.BeginTransactionAsync();
+        Assert.Same(_mockSession.Object, result.Session);
+    }
 
-            Assert.Same(_mockSession.Object, result.Session);
-        }
+    [Fact]
+    public async Task BeginTransactionAsync_WithOptions_PassesOptionsToContext()
+    {
+        var options = new TransactionOptions();
+        _mockClient
+            .Setup(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_mockSession.Object);
 
-        [Fact]
-        public async Task BeginTransactionAsync_WithOptions_PassesOptionsToContext()
-        {
-            var options = new TransactionOptions();
-            _mockClient
-                .Setup(c => c.StartSessionAsync(null, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(_mockSession.Object);
+        var manager = new MongoTransactionManager(_mockClient.Object);
 
-            var manager = new MongoTransactionManager(_mockClient.Object);
+        await manager.BeginTransactionAsync(options);
 
-            await manager.BeginTransactionAsync(options);
-
-            _mockSession.Verify(s => s.StartTransaction(options), Times.Once);
-        }
+        _mockSession.Verify(s => s.StartTransaction(options), Times.Once);
     }
 }
