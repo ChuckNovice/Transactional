@@ -1,6 +1,6 @@
 namespace Microsoft.Extensions.DependencyInjection;
 
-using global::MongoDB.Driver;
+using MongoDB.Driver;
 using Transactional.MongoDB;
 
 /// <summary>
@@ -25,31 +25,6 @@ public static class MongoDbTransactionServiceCollectionExtensions
     /// </example>
     public static IServiceCollection AddMongoDbTransactionManager(this IServiceCollection services)
     {
-        services.AddSingleton<IMongoTransactionManager>(sp =>
-        {
-            var client = sp.GetRequiredService<IMongoClient>();
-            return new MongoTransactionManager(client);
-        });
-
-        return services;
-    }
-
-    /// <summary>
-    /// Registers the MongoDB transaction manager with the dependency injection container using a custom factory.
-    /// </summary>
-    /// <param name="services">The service collection to add the services to.</param>
-    /// <param name="clientFactory">A factory function that creates the <see cref="IMongoClient"/> instance.</param>
-    /// <returns>The service collection for chaining.</returns>
-    /// <example>
-    /// <code>
-    /// services.AddMongoDbTransactionManager(sp => new MongoClient("mongodb://localhost:27017"));
-    /// </code>
-    /// </example>
-    public static IServiceCollection AddMongoDbTransactionManager(
-        this IServiceCollection services,
-        Func<IServiceProvider, IMongoClient> clientFactory)
-    {
-        services.AddSingleton<IMongoClient>(clientFactory);
         services.AddSingleton<IMongoTransactionManager>(sp =>
         {
             var client = sp.GetRequiredService<IMongoClient>();

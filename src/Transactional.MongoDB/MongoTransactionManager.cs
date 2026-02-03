@@ -30,4 +30,17 @@ public sealed class MongoTransactionManager : IMongoTransactionManager
         var session = await _client.StartSessionAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         return new MongoTransactionContext(session, options);
     }
+
+    /// <inheritdoc />
+    public IMongoTransactionContext WrapExistingTransaction(IClientSessionHandle session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        if (!session.IsInTransaction)
+        {
+            throw new ArgumentException("Session is not in an active transaction.", nameof(session));
+        }
+
+        return new MongoTransactionContext(session, existingTransaction: true);
+    }
 }

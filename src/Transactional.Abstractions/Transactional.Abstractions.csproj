@@ -13,4 +13,9 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Transactional.MongoDB" />
+    <InternalsVisibleTo Include="Transactional.PostgreSQL" />
+  </ItemGroup>
+
 </Project>
