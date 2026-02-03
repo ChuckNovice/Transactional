@@ -25,8 +25,8 @@ dotnet add package Transactional.PostgreSQL
 
 ```csharp
 // Program.cs - Register services
-builder.Services.AddMongoDbTransactionManager(sp =>
-    new MongoClient("mongodb://localhost:27017"));
+builder.Services.AddSingleton<IMongoClient>(new MongoClient("mongodb://localhost:27017"));
+builder.Services.AddMongoDbTransactionManager();
 
 // Usage
 public class MyService
@@ -87,13 +87,10 @@ public class MyService
 ### MongoDB
 
 ```csharp
-// Option 1: With existing IMongoClient registration
-builder.Services.AddSingleton<IMongoClient>(new MongoClient("mongodb://localhost:27017"));
-builder.Services.AddMongoDbTransactionManager();
-
-// Option 2: With factory (registers both IMongoClient and transaction manager)
-builder.Services.AddMongoDbTransactionManager(sp =>
+// Register IMongoClient first, then add transaction manager
+builder.Services.AddSingleton<IMongoClient>(
     new MongoClient(configuration.GetConnectionString("MongoDB")));
+builder.Services.AddMongoDbTransactionManager();
 ```
 
 ### PostgreSQL
@@ -207,53 +204,13 @@ public class OrderService
     {
         await using var context = await _transactionManager.BeginTransactionAsync();
 
-        try
-        {
-            await _userRepo.CreateUserAsync(user, context);
-            await _orderRepo.CreateOrderAsync(order, context);
-            await context.CommitAsync();
-        }
-        catch
-        {
-            await context.RollbackAsync();
-            throw;
-        }
+        await _userRepo.CreateUserAsync(user, context);
+        await _orderRepo.CreateOrderAsync(order, context);
+
+        await context.CommitAsync();
+        // If an exception is thrown before CommitAsync, DisposeAsync will auto-rollback
     }
 }
-```
-
-### Transaction Scope Helper
-
-A helper method that wraps the transaction lifecycle:
-
-```csharp
-public static class TransactionScope
-{
-    public static async Task ExecuteAsync(
-        IMongoTransactionManager manager,
-        Func<ITransactionContext, Task> action)
-    {
-        await using var context = await manager.BeginTransactionAsync();
-
-        try
-        {
-            await action(context);
-            await context.CommitAsync();
-        }
-        catch
-        {
-            await context.RollbackAsync();
-            throw;
-        }
-    }
-}
-
-// Usage
-await TransactionScope.ExecuteAsync(_transactionManager, async context =>
-{
-    await _userRepo.CreateUserAsync(user, context);
-    await _orderRepo.CreateOrderAsync(order, context);
-});
 ```
 
 ## PostgreSQL Repository Example
@@ -298,35 +255,125 @@ public class UserRepository
 
 ## Best Practices
 
-1. **Always use `await using` for transactions** - This ensures proper disposal even if exceptions occur.
+1. **Always use `await using` for transactions** - This ensures proper disposal and automatic rollback if an exception occurs before commit.
 
 2. **Pass `ITransactionContext` to repositories** - Use the base interface in method signatures, then cast internally to keep contracts database-agnostic.
 
-3. **Commit explicitly before dispose** - While dispose will rollback uncommitted transactions, it's clearer to commit explicitly.
+3. **Commit explicitly** - Call `CommitAsync()` when your work is complete. Uncommitted transactions are automatically rolled back on dispose.
 
-4. **Handle exceptions appropriately** - Catch exceptions, rollback, and rethrow to ensure proper transaction cleanup.
+4. **Make transaction participation optional** - Allow methods to work with or without a transaction context for flexibility.
 
-5. **Make transaction participation optional** - Allow methods to work with or without a transaction context for flexibility.
+5. **Use DI extension methods** - Prefer `AddMongoDbTransactionManager()` and `AddPostgresTransactionManager()` over manual registration.
 
-6. **Use DI extension methods** - Prefer `AddMongoDbTransactionManager()` and `AddPostgresTransactionManager()` over manual registration.
+## Advanced Features
+
+### Transaction State
+
+Check whether a transaction has been committed or rolled back:
+
+```csharp
+await using var context = await _transactionManager.BeginTransactionAsync();
+
+// ... do work ...
+
+if (!context.IsCommitted && !context.IsRolledBack)
+{
+    await context.CommitAsync();
+}
+```
+
+### Commit/Rollback Callbacks
+
+Register async callbacks that execute after a transaction completes:
+
+```csharp
+await using var context = await _transactionManager.BeginTransactionAsync();
+
+// Register callbacks before commit/rollback
+context.OnCommitted(async cancellationToken =>
+{
+    // Runs after successful commit - e.g., publish events, send notifications
+    await _eventPublisher.PublishAsync(new OrderCreatedEvent(order), cancellationToken);
+});
+
+context.OnRolledBack(async cancellationToken =>
+{
+    // Runs after explicit rollback - e.g., cleanup, logging
+    _logger.LogWarning("Order creation rolled back");
+});
+
+await _orderRepo.CreateOrderAsync(order, context);
+await context.CommitAsync(); // OnCommitted callbacks fire after this completes
+```
+
+**Note:** Callbacks only fire for explicit `CommitAsync()` or `RollbackAsync()` calls. They do **not** fire when `DisposeAsync()` performs an implicit rollback.
+
+### Wrapping Existing Transactions
+
+Wrap a pre-existing database transaction into a context. The wrapped transaction's lifecycle remains your responsibility:
+
+```csharp
+// MongoDB: Wrap a session that already has an active transaction
+using var session = await client.StartSessionAsync();
+session.StartTransaction();
+
+// ... do some work directly with session ...
+
+// Now wrap it to pass to libraries expecting ITransactionContext
+var context = _transactionManager.WrapExistingTransaction(session);
+await _someLibrary.DoWorkAsync(context);
+await context.CommitAsync();
+
+// session is NOT disposed when context is disposed - you manage it
+session.Dispose();
+```
+
+```csharp
+// PostgreSQL: Wrap an existing NpgsqlTransaction
+await using var connection = await _dataSource.OpenConnectionAsync();
+await using var transaction = await connection.BeginTransactionAsync();
+
+var context = _transactionManager.WrapExistingTransaction(transaction);
+await _someLibrary.DoWorkAsync(context);
+await context.CommitAsync();
+
+// transaction/connection are NOT disposed when context is disposed
+```
 
 ## API Reference
 
 All public APIs include XML documentation. Enable documentation generation in your IDE or refer to the generated XML documentation files in the NuGet packages.
 
-### Core Interfaces
+### ITransactionContext
 
-- `ITransactionContext` - Represents an active transaction with `CommitAsync` and `RollbackAsync`
+Base interface for all transaction contexts (extends `IAsyncDisposable`):
+
+| Member | Description |
+|--------|-------------|
+| `IsCommitted` | `true` after successful commit |
+| `IsRolledBack` | `true` after explicit rollback |
+| `CommitAsync(CancellationToken)` | Commits the transaction |
+| `RollbackAsync(CancellationToken)` | Rolls back the transaction |
+| `OnCommitted(Func<CancellationToken, Task>)` | Registers a post-commit callback |
+| `OnRolledBack(Func<CancellationToken, Task>)` | Registers a post-rollback callback |
 
 ### MongoDB
 
-- `IMongoTransactionContext` - Extends `ITransactionContext`, exposes `Session` property
-- `IMongoTransactionManager` - Creates transactions via `BeginTransactionAsync`
+**IMongoTransactionContext** - Extends `ITransactionContext`:
+- `Session` - The underlying `IClientSessionHandle`
+
+**IMongoTransactionManager**:
+- `BeginTransactionAsync(TransactionOptions?, CancellationToken)` - Starts a new transaction
+- `WrapExistingTransaction(IClientSessionHandle)` - Wraps a session with an active transaction
 
 ### PostgreSQL
 
-- `IPostgresTransactionContext` - Extends `ITransactionContext`, exposes `Transaction` property
-- `IPostgresTransactionManager` - Creates transactions via `BeginTransactionAsync`
+**IPostgresTransactionContext** - Extends `ITransactionContext`:
+- `Transaction` - The underlying `NpgsqlTransaction`
+
+**IPostgresTransactionManager**:
+- `BeginTransactionAsync(IsolationLevel, CancellationToken)` - Starts a new transaction (default: ReadCommitted)
+- `WrapExistingTransaction(NpgsqlTransaction)` - Wraps an existing transaction
 
 ## License
 
