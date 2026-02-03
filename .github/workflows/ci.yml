@@ -34,11 +34,6 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      mongodb:
-        image: mongo:7
-        ports:
-          - 27017:27017
-
       postgres:
         image: postgres:16
         env:
@@ -56,6 +51,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Start MongoDB replica set
+      run: |
+        docker run -d --name mongodb -p 27017:27017 mongo:7 mongod --replSet rs0
+        sleep 5
+        docker exec mongodb mongosh --eval "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]})"
+        sleep 5
+        docker exec mongodb mongosh --eval "rs.status()"
+
     - name: Setup .NET 10
       uses: actions/setup-dotnet@v4
       with:
@@ -69,6 +72,6 @@ jobs:
 
     - name: Run integration tests
       env:
-        MONGODB_CONNECTION_STRING: mongodb://localhost:27017
+        MONGODB_CONNECTION_STRING: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
         POSTGRES_CONNECTION_STRING: Host=localhost;Database=transactional_test;Username=postgres;Password=postgres
       run: dotnet test --no-build --filter 'Category=Integration'

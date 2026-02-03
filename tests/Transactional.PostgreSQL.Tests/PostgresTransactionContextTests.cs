@@ -109,7 +109,7 @@ public class PostgresTransactionContextTests
 
         var parameters = methodInfo.GetParameters();
         Assert.Single(parameters);
-        Assert.Equal(typeof(Func<System.Threading.CancellationToken, Task>), parameters[0].ParameterType);
+        Assert.Equal(typeof(Func<CancellationToken, Task>), parameters[0].ParameterType);
     }
 
     [Fact]
@@ -123,6 +123,6 @@ public class PostgresTransactionContextTests
 
         var parameters = methodInfo.GetParameters();
         Assert.Single(parameters);
-        Assert.Equal(typeof(Func<System.Threading.CancellationToken, Task>), parameters[0].ParameterType);
+        Assert.Equal(typeof(Func<CancellationToken, Task>), parameters[0].ParameterType);
     }
 }

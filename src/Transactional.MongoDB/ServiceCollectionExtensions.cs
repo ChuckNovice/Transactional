@@ -1,6 +1,6 @@
 namespace Microsoft.Extensions.DependencyInjection;
 
-using global::MongoDB.Driver;
+using MongoDB.Driver;
 using Transactional.MongoDB;
 
 /// <summary>

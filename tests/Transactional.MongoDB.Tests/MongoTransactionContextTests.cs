@@ -343,7 +343,7 @@ public class MongoTransactionContextTests
             .Returns(Task.CompletedTask);
 
         var context = new MongoTransactionContext(_mockSession.Object);
-        var order = new System.Collections.Generic.List<int>();
+        var order = new List<int>();
         context.OnCommitted(_ => { order.Add(1); return Task.CompletedTask; });
         context.OnCommitted(_ => { order.Add(2); return Task.CompletedTask; });
         context.OnCommitted(_ => { order.Add(3); return Task.CompletedTask; });
@@ -487,7 +487,7 @@ public class MongoTransactionContextTests
             .Returns(Task.CompletedTask);
 
         var context = new MongoTransactionContext(_mockSession.Object);
-        var order = new System.Collections.Generic.List<int>();
+        var order = new List<int>();
         context.OnRolledBack(_ => { order.Add(1); return Task.CompletedTask; });
         context.OnRolledBack(_ => { order.Add(2); return Task.CompletedTask; });
         context.OnRolledBack(_ => { order.Add(3); return Task.CompletedTask; });
