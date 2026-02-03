@@ -71,4 +71,58 @@ public class PostgresTransactionContextTests
         Assert.NotNull(methodInfo);
         Assert.Equal(typeof(Task), methodInfo.ReturnType);
     }
+
+    // State property tests
+
+    [Fact]
+    public void IsCommitted_Property_Exists()
+    {
+        var propertyInfo = typeof(PostgresTransactionContext)
+            .GetProperty(nameof(PostgresTransactionContext.IsCommitted));
+
+        Assert.NotNull(propertyInfo);
+        Assert.Equal(typeof(bool), propertyInfo.PropertyType);
+        Assert.True(propertyInfo.CanRead);
+    }
+
+    [Fact]
+    public void IsRolledBack_Property_Exists()
+    {
+        var propertyInfo = typeof(PostgresTransactionContext)
+            .GetProperty(nameof(PostgresTransactionContext.IsRolledBack));
+
+        Assert.NotNull(propertyInfo);
+        Assert.Equal(typeof(bool), propertyInfo.PropertyType);
+        Assert.True(propertyInfo.CanRead);
+    }
+
+    // Callback method tests
+
+    [Fact]
+    public void OnCommitted_HasExpectedSignature()
+    {
+        var methodInfo = typeof(PostgresTransactionContext)
+            .GetMethod(nameof(PostgresTransactionContext.OnCommitted));
+
+        Assert.NotNull(methodInfo);
+        Assert.Equal(typeof(void), methodInfo.ReturnType);
+
+        var parameters = methodInfo.GetParameters();
+        Assert.Single(parameters);
+        Assert.Equal(typeof(Func<System.Threading.CancellationToken, Task>), parameters[0].ParameterType);
+    }
+
+    [Fact]
+    public void OnRolledBack_HasExpectedSignature()
+    {
+        var methodInfo = typeof(PostgresTransactionContext)
+            .GetMethod(nameof(PostgresTransactionContext.OnRolledBack));
+
+        Assert.NotNull(methodInfo);
+        Assert.Equal(typeof(void), methodInfo.ReturnType);
+
+        var parameters = methodInfo.GetParameters();
+        Assert.Single(parameters);
+        Assert.Equal(typeof(Func<System.Threading.CancellationToken, Task>), parameters[0].ParameterType);
+    }
 }

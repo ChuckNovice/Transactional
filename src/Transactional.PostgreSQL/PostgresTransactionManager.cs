@@ -31,4 +31,22 @@ public sealed class PostgresTransactionManager : IPostgresTransactionManager
         var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         return new PostgresTransactionContext(connection, isolationLevel);
     }
+
+    /// <inheritdoc />
+    public IPostgresTransactionContext WrapExistingTransaction(NpgsqlTransaction transaction)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+
+        if (transaction.Connection == null)
+        {
+            throw new ArgumentException("Transaction has no associated connection.", nameof(transaction));
+        }
+
+        if (transaction.Connection.State != ConnectionState.Open)
+        {
+            throw new ArgumentException("Transaction's connection is not open.", nameof(transaction));
+        }
+
+        return new PostgresTransactionContext(transaction);
+    }
 }
