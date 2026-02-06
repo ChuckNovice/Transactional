@@ -3,7 +3,7 @@ namespace Transactional.PostgreSQL.Tests;
 using System;
 using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
-using global::Npgsql;
+using Npgsql;
 using Xunit;
 
 /// <summary>

@@ -119,7 +119,7 @@ public static class MongoDbTransactionServiceCollectionExtensions
         object serviceKey,
         Func<IServiceProvider, IMongoClient> clientFactory)
     {
-        services.AddKeyedSingleton<IMongoClient>(serviceKey, (sp, _) => clientFactory(sp));
+        services.AddKeyedSingleton(serviceKey, (sp, _) => clientFactory(sp));
         services.AddKeyedSingleton<IMongoTransactionManager>(serviceKey, (sp, key) =>
         {
             var client = sp.GetRequiredKeyedService<IMongoClient>(key);

@@ -137,7 +137,7 @@ public static class PostgresTransactionServiceCollectionExtensions
         object serviceKey,
         string connectionString)
     {
-        services.AddKeyedSingleton<NpgsqlDataSource>(serviceKey, (_, _) => NpgsqlDataSource.Create(connectionString));
+        services.AddKeyedSingleton(serviceKey, (_, _) => NpgsqlDataSource.Create(connectionString));
         services.AddKeyedSingleton<IPostgresTransactionManager>(serviceKey, (sp, key) =>
         {
             var dataSource = sp.GetRequiredKeyedService<NpgsqlDataSource>(key);
@@ -171,7 +171,7 @@ public static class PostgresTransactionServiceCollectionExtensions
         object serviceKey,
         Func<IServiceProvider, NpgsqlDataSource> dataSourceFactory)
     {
-        services.AddKeyedSingleton<NpgsqlDataSource>(serviceKey, (sp, _) => dataSourceFactory(sp));
+        services.AddKeyedSingleton(serviceKey, (sp, _) => dataSourceFactory(sp));
         services.AddKeyedSingleton<IPostgresTransactionManager>(serviceKey, (sp, key) =>
         {
             var dataSource = sp.GetRequiredKeyedService<NpgsqlDataSource>(key);

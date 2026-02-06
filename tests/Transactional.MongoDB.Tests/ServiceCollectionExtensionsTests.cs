@@ -118,7 +118,7 @@ public class ServiceCollectionExtensionsTests
     {
         var services = new ServiceCollection();
         const string key = "analytics";
-        services.AddKeyedSingleton<IMongoClient>(key, _mockClient.Object);
+        services.AddKeyedSingleton(key, _mockClient.Object);
 
         services.AddKeyedMongoDbTransactionManager(key);
 
@@ -134,7 +134,7 @@ public class ServiceCollectionExtensionsTests
     {
         var services = new ServiceCollection();
         const string key = "analytics";
-        services.AddKeyedSingleton<IMongoClient>(key, _mockClient.Object);
+        services.AddKeyedSingleton(key, _mockClient.Object);
 
         services.AddKeyedMongoDbTransactionManager(key);
 
@@ -150,8 +150,8 @@ public class ServiceCollectionExtensionsTests
         var services = new ServiceCollection();
         var mockClient1 = new Mock<IMongoClient>();
         var mockClient2 = new Mock<IMongoClient>();
-        services.AddKeyedSingleton<IMongoClient>("primary", mockClient1.Object);
-        services.AddKeyedSingleton<IMongoClient>("analytics", mockClient2.Object);
+        services.AddKeyedSingleton("primary", mockClient1.Object);
+        services.AddKeyedSingleton("analytics", mockClient2.Object);
 
         services.AddKeyedMongoDbTransactionManager("primary");
         services.AddKeyedMongoDbTransactionManager("analytics");
