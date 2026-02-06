@@ -111,6 +111,74 @@ builder.Services.AddPostgresTransactionManager(sp =>
 });
 ```
 
+### Keyed Services (Multiple Databases)
+
+When your application connects to multiple databases of the same type, or when a library needs to avoid collisions with the host application's registrations, use keyed services:
+
+#### MongoDB with Keyed Services
+
+```csharp
+// Register multiple MongoDB transaction managers with different keys
+builder.Services.AddMongoDbTransactionManager("primary", sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    return new MongoClient(config.GetConnectionString("PrimaryMongoDB"));
+});
+
+builder.Services.AddMongoDbTransactionManager("analytics", sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    return new MongoClient(config.GetConnectionString("AnalyticsMongoDB"));
+});
+
+// Or with pre-registered keyed IMongoClient
+builder.Services.AddKeyedSingleton<IMongoClient>("cache", new MongoClient("mongodb://cache-host:27017"));
+builder.Services.AddKeyedMongoDbTransactionManager("cache");
+```
+
+#### PostgreSQL with Keyed Services
+
+```csharp
+// Option 1: With connection strings
+builder.Services.AddPostgresTransactionManager("primary", "Host=primary-db;Database=app");
+builder.Services.AddPostgresTransactionManager("reporting", "Host=reporting-db;Database=reports");
+
+// Option 2: With factories
+builder.Services.AddPostgresTransactionManager("primary", sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    return NpgsqlDataSource.Create(config.GetConnectionString("PrimaryPostgreSQL")!);
+});
+
+// Option 3: With pre-registered keyed NpgsqlDataSource
+builder.Services.AddKeyedSingleton("archive", NpgsqlDataSource.Create("Host=archive-db;Database=archive"));
+builder.Services.AddKeyedPostgresTransactionManager("archive");
+```
+
+#### Resolving Keyed Services
+
+Use the `[FromKeyedServices]` attribute for constructor injection:
+
+```csharp
+public class AnalyticsService
+{
+    private readonly IMongoTransactionManager _transactionManager;
+
+    public AnalyticsService(
+        [FromKeyedServices("analytics")] IMongoTransactionManager transactionManager)
+    {
+        _transactionManager = transactionManager;
+    }
+}
+```
+
+Or resolve manually from the service provider:
+
+```csharp
+var primaryManager = serviceProvider.GetRequiredKeyedService<IPostgresTransactionManager>("primary");
+var reportingManager = serviceProvider.GetRequiredKeyedService<IPostgresTransactionManager>("reporting");
+```
+
 ## Recommended Usage Pattern
 
 ### Repository Layer
@@ -374,6 +442,28 @@ Base interface for all transaction contexts (extends `IAsyncDisposable`):
 **IPostgresTransactionManager**:
 - `BeginTransactionAsync(IsolationLevel, CancellationToken)` - Starts a new transaction (default: ReadCommitted)
 - `WrapExistingTransaction(NpgsqlTransaction)` - Wraps an existing transaction
+
+### Extension Methods
+
+#### MongoDB
+
+| Method | Description |
+|--------|-------------|
+| `AddMongoDbTransactionManager()` | Registers with pre-registered `IMongoClient` |
+| `AddMongoDbTransactionManager(factory)` | Registers with client factory |
+| `AddKeyedMongoDbTransactionManager(key)` | Registers keyed service with pre-registered keyed `IMongoClient` |
+| `AddMongoDbTransactionManager(key, factory)` | Registers keyed service with client factory |
+
+#### PostgreSQL
+
+| Method | Description |
+|--------|-------------|
+| `AddPostgresTransactionManager()` | Registers with pre-registered `NpgsqlDataSource` |
+| `AddPostgresTransactionManager(connectionString)` | Registers with connection string |
+| `AddPostgresTransactionManager(factory)` | Registers with data source factory |
+| `AddKeyedPostgresTransactionManager(key)` | Registers keyed service with pre-registered keyed `NpgsqlDataSource` |
+| `AddPostgresTransactionManager(key, connectionString)` | Registers keyed service with connection string |
+| `AddPostgresTransactionManager(key, factory)` | Registers keyed service with data source factory |
 
 ## License
 
